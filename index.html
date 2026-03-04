@@ -1,1 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consola de Gestión de Manufactura Avanzada</title>
+    <!-- Librerías de React, Tailwind y Animaciones -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .glass-header { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+        .card-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="root"></div>
 
+    <!-- Módulo de Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        // Configuración basada en tus imágenes
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-TtzoEhd9ZE5cqLmPwK2bjD3eHVfEfTo",
+            authDomain: "reto-manufactura.firebaseapp.com",
+            projectId: "reto-manufactura",
+            storageBucket: "reto-manufactura.firebasestorage.app",
+            messagingSenderId: "499020157446",
+            appId: "1:499020157446:web:87c6a3c4516a73ef9ee987",
+            measurementId: "G-C26RT2K5K6"
+        };
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+            const auth = getAuth(app);
+            
+            window.db = db;
+            window.auth = auth;
+            window.appId = "reto-manufactura";
+            window.fs = { collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc, writeBatch };
+            window.at = { signInAnonymously, onAuthStateChanged };
+            window.firebaseReady = true;
+            window.dispatchEvent(new Event('firebase-ready'));
+        } catch (error) {
+            console.error("Error Firebase:", error);
+            window.firebaseError = error.message;
+        }
+    </script>
+
+    <!-- Lógica de la Aplicación -->
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const CATEGORIES = ['Planta 1', 'Planta 2', 'Docker/Core', 'Cognex', 'Admin', 'Digital Twin'];
+        const STATUSES = ['Todo', 'In Progress', 'Completed'];
+        const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'];
+
+        const INITIAL_PLAN = [
+            { category: 'Planta 1', main: 'Instrumentación CIMA', desc: 'Digitalización con ESP32-S3 y sensores.', members: 'Por asignar', deadline: '2025-03-01', status: 'In Progress', priority: 'High', subtasks: [{text: 'Montaje de sensores', completed: false}, {text: 'Conexión MQTT', completed: false}] },
+            { category: 'Planta 2', main: 'Celda 1: PLC Siemens', desc: 'Lógica secuencial en S7-1200.', members: 'Sebas, Amir, Nico', deadline: '2025-02-07', status: 'In Progress', priority: 'Critical', subtasks: [] },
+            { category: 'Planta 2', main: 'Celda 2: Acabado', desc: 'Control de procesos avanzado.', members: 'Dani, Mariano', deadline: '2025-02-07', status: 'In Progress', priority: 'Critical', subtasks: [] },
+            { category: 'Docker/Core', main: 'Infraestructura Raspberry Pi 5', desc: 'Gestión del servidor central.', members: 'Por asignar', deadline: '2025-02-15', status: 'Completed', priority: 'High', subtasks: [] },
+            { category: 'Digital Twin', main: 'Sincronización Gemelo Digital', desc: 'Réplica digital sincronizada vía WebSockets.', members: 'Por asignar', deadline: '2025-04-15', status: 'Todo', priority: 'Medium', subtasks: [] }
+        ];
+
+        const App = () => {
+            const [activities, setActivities] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [view, setView] = useState('list');
+            const [filter, setFilter] = useState('All');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingTask, setEditingTask] = useState(null);
+            const [expandedId, setExpandedId] = useState(null);
+
+            const [form, setForm] = useState({ category: 'Planta 1', main: '', desc: '', members: '', deadline: '', status: 'Todo', priority: 'Medium' });
+
+            useEffect(() => {
+                const init = () => {
+                    if (window.firebaseReady) setupSync();
+                    else window.addEventListener('firebase-ready', setupSync);
+                };
+                init();
+                return () => window.removeEventListener('firebase-ready', setupSync);
+            }, []);
+
+            const setupSync = async () => {
+                const { signInAnonymously, onAuthStateChanged } = window.at;
+                const { collection, onSnapshot } = window.fs;
+                await signInAnonymously(window.auth);
+                onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        const colRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'activities');
+                        onSnapshot(colRef, (snapshot) => {
+                            if (snapshot.empty) seedData();
+                            else {
+                                setActivities(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+                                setLoading(false);
+                            }
+                        });
+                    }
+                });
+            };
+
+            const seedData = async () => {
+                const { collection, doc, writeBatch } = window.fs;
+                const colRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'activities');
+                const batch = writeBatch(window.db);
+                INITIAL_PLAN.forEach(item => {
+                    const newDoc = doc(colRef);
+                    batch.set(newDoc, { ...item, createdAt: new Date().toISOString() });
+                });
+                await batch.commit();
+            };
+
+            const handleSave = async () => {
+                const { collection, addDoc, doc, updateDoc } = window.fs;
+                try {
+                    if (editingTask) {
+                        const docRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activities', editingTask.id);
+                        await updateDoc(docRef, form);
+                    } else {
+                        const colRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'activities');
+                        await addDoc(colRef, { ...form, subtasks: [], createdAt: new Date().toISOString() });
+                    }
+                    setIsModalOpen(false);
+                    setEditingTask(null);
+                    setForm({ category: 'Planta 1', main: '', desc: '', members: '', deadline: '', status: 'Todo', priority: 'Medium' });
+                } catch (e) { alert("Error: " + e.message); }
+            };
+
+            const openEdit = (task) => {
+                setEditingTask(task);
+                setForm({ ...task });
+                setIsModalOpen(true);
+            };
+
+            const deleteTask = async (id) => {
+                if (confirm('¿Eliminar definitivamente?')) {
+                    await window.fs.deleteDoc(window.fs.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activities', id));
+                }
+            };
+
+            const toggleSubtask = async (task, index) => {
+                const newSubs = [...(task.subtasks || [])];
+                newSubs[index].completed = !newSubs[index].completed;
+                await window.fs.updateDoc(window.fs.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activities', task.id), { subtasks: newSubs });
+            };
+
+            const calculateProgress = (subtasks) => {
+                if (!subtasks || subtasks.length === 0) return 0;
+                const done = subtasks.filter(s => s.completed).length;
+                return Math.round((done / subtasks.length) * 100);
+            };
+
+            const globalProgress = useMemo(() => {
+                if (activities.length === 0) return 0;
+                const totalSubs = activities.reduce((acc, curr) => acc + (curr.subtasks?.length || 0), 0);
+                const doneSubs = activities.reduce((acc, curr) => acc + (curr.subtasks?.filter(s => s.completed).length || 0), 0);
+                return totalSubs === 0 ? 0 : Math.round((doneSubs / totalSubs) * 100);
+            }, [activities]);
+
+            if (loading) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-white">
+                    <div className="w-12 h-12 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+                    <p className="font-black text-slate-400 uppercase tracking-widest text-[10px] animate-pulse">Sincronizando Sistema...</p>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen pb-24">
+                    {/* Header Global */}
+                    <header className="glass-header sticky top-0 z-40 border-b px-6 py-4">
+                        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-100">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl font-black text-slate-900 tracking-tighter italic uppercase leading-none">Smart Factory Manager</h1>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Planta 1 & 2 • Proyecto Reto</p>
+                                </div>
+                            </div>
+                            
+                            <div className="w-full md:w-80">
+                                <div className="flex justify-between items-end mb-1.5">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Progreso del Reto</span>
+                                    <span className="text-sm font-black text-indigo-600 italic">{globalProgress}%</span>
+                                </div>
+                                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${globalProgress}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto p-6 md:p-8">
+                        {/* Controles */}
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-10">
+                            <div className="flex p-1 bg-slate-200/50 rounded-2xl">
+                                <button onClick={() => setView('list')} className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'list' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>Lista</button>
+                                <button onClick={() => setView('calendar')} className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'calendar' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>Calendario</button>
+                            </div>
+                            
+                            <div className="flex flex-wrap items-center gap-3">
+                                <select className="bg-white border-2 border-slate-100 p-3 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm" onChange={e => setFilter(e.target.value)}>
+                                    <option value="All">Todas las Áreas</option>
+                                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-100 transition-all">Nueva Actividad</button>
+                            </div>
+                        </div>
+
+                        {view === 'list' ? (
+                            <div className="space-y-6">
+                                {activities.filter(a => filter === 'All' || a.category === filter).map(task => {
+                                    const prog = calculateProgress(task.subtasks);
+                                    return (
+                                        <div key={task.id} className="bg-white border-2 border-slate-50 rounded-[2.5rem] card-hover overflow-hidden shadow-sm">
+                                            <div className="p-8 flex flex-col md:flex-row items-center gap-10">
+                                                <div className="flex-1 w-full cursor-pointer" onClick={() => setExpandedId(expandedId === task.id ? null : task.id)}>
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">{task.category}</span>
+                                                        {task.priority === 'Critical' && <span className="text-[10px] font-black text-red-500 uppercase animate-pulse">● Prioridad Crítica</span>}
+                                                    </div>
+                                                    <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight italic">{task.main}</h3>
+                                                    <p className="text-sm text-slate-400 font-medium italic mt-1 line-clamp-1">"{task.desc}"</p>
+                                                </div>
+
+                                                <div className="flex flex-col md:flex-row items-center gap-12 w-full md:w-auto">
+                                                    <div className="text-right w-full md:w-32">
+                                                        <p className="text-[10px] font-black text-slate-300 uppercase mb-1.5">Hitos</p>
+                                                        <div className="flex items-center justify-end gap-3">
+                                                            <div className="w-16 h-1.5 bg-slate-100 rounded-full">
+                                                                <div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${prog}%` }}></div>
+                                                            </div>
+                                                            <span className="text-xs font-black text-slate-700">{prog}%</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right w-full md:w-32">
+                                                        <p className="text-[10px] font-black text-slate-300 uppercase mb-1">Fecha Límite</p>
+                                                        <p className="text-sm font-black text-slate-600 italic">{task.deadline || 'S/F'}</p>
+                                                    </div>
+                                                    <div className="w-full md:w-36">
+                                                        <span className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border block text-center shadow-sm ${task.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : task.status === 'In Progress' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                            {task.status}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex gap-2.5 pt-4 md:pt-0">
+                                                        <button onClick={() => openEdit(task)} className="p-3.5 bg-slate-50 text-slate-400 rounded-2xl hover:text-indigo-600 hover:bg-white border border-transparent hover:border-indigo-100 transition-all shadow-sm">
+                                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                        </button>
+                                                        <button onClick={() => deleteTask(task.id)} className="p-3.5 bg-slate-50 text-slate-400 rounded-2xl hover:text-red-600 hover:bg-white border border-transparent hover:border-red-100 transition-all shadow-sm">
+                                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {expandedId === task.id && (
+                                                <div className="bg-slate-50/50 border-t p-10 animate-in slide-in-from-top-4 duration-500">
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+                                                        <div>
+                                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 border-b pb-2">Control de Hitos (WBS)</h4>
+                                                            <div className="space-y-3">
+                                                                {(task.subtasks || []).map((sub, i) => (
+                                                                    <div key={i} onClick={() => toggleSubtask(task, i)} className="flex items-center gap-4 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-indigo-200 cursor-pointer transition-all shadow-sm group">
+                                                                        <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${sub.completed ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' : 'border-slate-200 group-hover:border-indigo-300'}`}>
+                                                                            {sub.completed && <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>}
+                                                                        </div>
+                                                                        <span className={`text-sm font-bold ${sub.completed ? 'line-through text-slate-300 italic' : 'text-slate-700'}`}>{sub.text}</span>
+                                                                    </div>
+                                                                ))}
+                                                                <button onClick={async () => {
+                                                                    const text = prompt('Nuevo hito:');
+                                                                    if(text) await window.fs.updateDoc(window.fs.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'activities', task.id), { subtasks: [...(task.subtasks || []), {text, completed: false}] });
+                                                                }} className="w-full border-2 border-dashed p-5 rounded-2xl text-[10px] font-black uppercase text-slate-400 hover:bg-white hover:border-indigo-200 transition-all">+ Registrar Avance</button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-8">
+                                                            <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm">
+                                                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Asignación RACI</h4>
+                                                                <div className="space-y-6">
+                                                                    <div>
+                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Responsable Principal</span>
+                                                                        <p className="text-base font-black text-slate-800 italic uppercase">{task.members || 'Por asignar'}</p>
+                                                                    </div>
+                                                                    <div className="pt-6 border-t border-slate-50">
+                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">Especificaciones Técnicas</span>
+                                                                        <p className="text-sm text-slate-500 leading-relaxed font-medium italic">{task.desc}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
+                                                                <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:rotate-12 transition-transform duration-700">
+                                                                    <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                                                                </div>
+                                                                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Protocolo de Calidad</h4>
+                                                                <p className="text-xs text-slate-300 font-medium leading-relaxed italic">Verificar integridad de datos en el servidor Raspberry antes de marcar como "Completed".</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="bg-white border-2 border-slate-50 rounded-[3rem] p-10 shadow-sm animate-in fade-in duration-500">
+                                <div className="flex justify-between items-center mb-12">
+                                    <h2 className="text-3xl font-black italic uppercase tracking-tighter">Cronograma Maestro</h2>
+                                    <span className="text-xs font-black text-indigo-500 bg-indigo-50 px-5 py-2 rounded-full uppercase tracking-[0.2em]">Marzo 2025</span>
+                                </div>
+                                <div className="calendar-grid text-center mb-8 border-b-2 border-slate-50 pb-4">
+                                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => <div key={d} className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{d}</div>)}
+                                </div>
+                                <div className="calendar-grid">
+                                    {Array.from({ length: 35 }).map((_, i) => {
+                                        const day = i - 5; // Ajuste para Marzo 2025
+                                        const dateStr = day > 0 && day <= 31 ? `2025-03-${day < 10 ? '0' + day : day}` : null;
+                                        const tasks = activities.filter(a => a.deadline === dateStr || (a.deadline && parseInt(a.deadline.split('-')[2]) === day && parseInt(a.deadline.split('-')[1]) === 3));
+                                        
+                                        return (
+                                            <div key={i} className={`min-h-[160px] p-5 border-2 rounded-3xl transition-all ${day > 0 && day <= 31 ? 'bg-white border-slate-50 hover:border-indigo-100' : 'bg-slate-50 border-transparent opacity-10'}`}>
+                                                {day > 0 && day <= 31 && (
+                                                    <>
+                                                        <span className="text-xs font-black text-slate-300 mb-4 block">{day}</span>
+                                                        <div className="space-y-2">
+                                                            {tasks.map(t => (
+                                                                <div key={t.id} className={`text-[9px] font-black uppercase p-2 rounded-xl truncate shadow-sm border ${t.priority === 'Critical' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>
+                                                                    {t.main}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Modal de Tarea */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+                            <div className="bg-white rounded-[3.5rem] w-full max-w-2xl shadow-2xl animate-in zoom-in duration-300 my-8">
+                                <div className="p-12 border-b flex justify-between items-center bg-slate-50/50 rounded-t-[3.5rem]">
+                                    <div>
+                                        <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">{editingTask ? 'Modificar Registro' : 'Nueva Actividad'}</h2>
+                                        <p className="text-[10px] font-bold text-indigo-500 uppercase mt-3 tracking-widest">Configuración de Tarea Maestra</p>
+                                    </div>
+                                    <button onClick={() => setIsModalOpen(false)} className="p-4 bg-white border-2 border-slate-50 rounded-2xl hover:bg-slate-50 transition-all text-slate-400">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                                <div className="p-12 space-y-8">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Área</label>
+                                            <select className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Título</label>
+                                            <input className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.main} onChange={e => setForm({...form, main: e.target.value})} placeholder="Ej: Trayectorias Cobot" />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descripción Técnica</label>
+                                        <textarea className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-medium text-sm h-32 resize-none outline-none transition-all" value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} placeholder="Especificaciones operativas..." />
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Responsables</label>
+                                            <input className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.members} onChange={e => setForm({...form, members: e.target.value})} placeholder="Nombres del equipo..." />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Deadline</label>
+                                            <input type="date" className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Estado</label>
+                                            <select className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                                                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Prioridad</label>
+                                            <select className="w-full p-4.5 bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl font-black text-sm outline-none transition-all" value={form.priority} onChange={e => setForm({...form, priority: e.target.value})}>
+                                                {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="pt-8 flex gap-6">
+                                        <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 font-black uppercase text-xs text-slate-400 hover:text-slate-800 transition-colors">Abortar</button>
+                                        <button onClick={handleSave} className="flex-[2] py-5 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 transition-all hover:-translate-y-1">Sincronizar Datos</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
