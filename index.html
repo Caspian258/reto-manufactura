@@ -59,9 +59,114 @@
         const { useState, useEffect } = React;
 
         const INITIAL_PLAN = [
-            { category: 'Planta 1', main: 'Instrumentación CIMA', desc: 'Digitalización con ESP32-S3 y sensores.', members: 'Por asignar', deadline: '2025-03-01', status: 'In Progress', priority: 'High', subtasks: [] },
-            { category: 'Planta 2', main: 'Celda 1: PLC Siemens', desc: 'Lógica secuencial en S7-1200.', members: 'Sebas, Amir, Nico', deadline: '2025-02-07', status: 'In Progress', priority: 'Critical', subtasks: [] },
-            { category: 'Planta 2', main: 'Celda 2: Acabado', desc: 'Control de procesos avanzado.', members: 'Dani, Mariano', deadline: '2025-02-07', status: 'In Progress', priority: 'Critical', subtasks: [] }
+            { 
+                category: 'Planta 1', 
+                main: 'Instrumentación CIMA', 
+                desc: 'Digitalización con ESP32-S3 y sensores.', 
+                members: 'Por asignar', 
+                deadline: '2025-03-01', 
+                status: 'In Progress', 
+                priority: 'High', 
+                subtasks: [
+                    { id: 101, text: 'Montaje de sensores en Torno/Fresadora', completed: false },
+                    { id: 102, text: 'Programación ESP32 (Protocolo MQTT)', completed: false },
+                    { id: 103, text: 'Validación de KPIs de energía', completed: false }
+                ] 
+            },
+            { 
+                category: 'Planta 1', 
+                main: 'Dashboard Planta 1', 
+                desc: 'Interfaz local para visualización de ceguera operativa y trazabilidad.', 
+                members: 'Por asignar', 
+                deadline: '2025-03-10', 
+                status: 'Todo', 
+                priority: 'Medium', 
+                subtasks: [
+                    { id: 201, text: 'Configuración de nodos en Node-RED', completed: false },
+                    { id: 202, text: 'Diseño de UI para OEE Lite', completed: false }
+                ] 
+            },
+            { 
+                category: 'Planta 2', 
+                main: 'Celda 1: Integración PLC', 
+                desc: 'Configuración de lógica central y comunicación industrial.', 
+                members: 'Sebas, Amir, Nico', 
+                deadline: '2025-02-07', 
+                status: 'In Progress', 
+                priority: 'Critical', 
+                subtasks: [
+                    { id: 301, text: 'Programación Siemens S7-1200', completed: false },
+                    { id: 302, text: 'Integración Profinet con periféricos', completed: false }
+                ] 
+            },
+            { 
+                category: 'Planta 2', 
+                main: 'Celda 2: Acabado y Hardware', 
+                desc: 'Control de procesos de acabado avanzado.', 
+                members: 'Dani, Mariano', 
+                deadline: '2025-02-07', 
+                status: 'In Progress', 
+                priority: 'Critical', 
+                subtasks: [
+                    { id: 401, text: 'Ajuste de sensores de presencia', completed: false },
+                    { id: 402, text: 'Pruebas de secuenciamiento', completed: false }
+                ] 
+            },
+            { 
+                category: 'Cognex', 
+                main: 'Robótica y Visión (Cognex)', 
+                desc: 'Programación del Cobot para armado de Lego y validación de calidad.', 
+                members: 'Por asignar', 
+                deadline: '2025-03-20', 
+                status: 'Todo', 
+                priority: 'High', 
+                subtasks: [
+                    { id: 501, text: 'Trayectorias del Cobot para palletizado', completed: false },
+                    { id: 502, text: 'Configuración Cognex (Quality Gate)', completed: false },
+                    { id: 503, text: 'Lógica de armado de Lego', completed: false }
+                ] 
+            },
+            { 
+                category: 'Docker/Core', 
+                main: 'Infraestructura Raspberry Pi 5', 
+                desc: 'Gestión del servidor central y stack MANT.', 
+                members: 'Por asignar', 
+                deadline: '2025-02-15', 
+                status: 'Completed', 
+                priority: 'High', 
+                subtasks: [
+                    { id: 601, text: 'Despliegue de Docker Containers', completed: true },
+                    { id: 602, text: 'Configuración Broker MQTT Mosquitto', completed: true },
+                    { id: 603, text: 'Hardening de Ciberseguridad (Wazuh)', completed: false }
+                ] 
+            },
+            { 
+                category: 'Admin', 
+                main: 'Pantalla Administrador Central', 
+                desc: 'Centro de control unificado para ambas plantas y monitoreo global.', 
+                members: 'Por asignar', 
+                deadline: '2025-04-01', 
+                status: 'Todo', 
+                priority: 'Medium', 
+                subtasks: [
+                    { id: 701, text: 'Integración de KPIs Consolidados', completed: false },
+                    { id: 702, text: 'Implementación de Asistente Secundario', completed: false }
+                ] 
+            },
+            { 
+                category: 'Digital Twin', 
+                main: 'Sincronización Gemelo Digital', 
+                desc: 'Réplica digital en tiempo real sincronizada mediante WebSockets.', 
+                members: 'Por asignar', 
+                deadline: '2025-04-15', 
+                status: 'Todo', 
+                priority: 'Medium', 
+                subtasks: [
+                    { id: 801, text: 'Modelado de activos en 3D/Dashboard', completed: false },
+                    { id: 802, text: 'Sincronización con datos de campo', completed: false },
+                    { id: 803, text: 'Dashboard en Tablet (Internet)', completed: false }
+                ] 
+            }
         ];
 
         const App = () => {
@@ -73,6 +178,8 @@
             const [expandedId, setExpandedId] = useState(null);
             const [form, setForm] = useState({ category: 'Planta 1', main: '', desc: '', members: '', deadline: '', status: 'Todo', priority: 'Medium' });
 
+            const categoryList = ['Planta 1', 'Planta 2', 'Docker/Core', 'Cognex', 'Admin', 'Digital Twin'];
+
             useEffect(() => {
                 const initApp = () => {
                     if (window.firebaseInitError) {
@@ -83,11 +190,9 @@
                     setupFirebase();
                 };
 
-                // Si Firebase ya cargó antes que el componente
                 if (window.db) {
                     initApp();
                 } else {
-                    // Esperamos el evento de carga
                     window.addEventListener('firebase-ready', initApp);
                 }
                 
@@ -99,12 +204,10 @@
                 const { collection, onSnapshot } = window.fs;
 
                 try {
-                    // Intentamos loguearnos
-                    const userCredential = await signInAnonymously(window.auth);
+                    await signInAnonymously(window.auth);
                     
                     onAuthStateChanged(window.auth, (user) => {
                         if (user) {
-                            // Conectamos a la colección
                             const colRef = collection(window.db, 'artifacts', window.appId, 'public', 'data', 'activities');
                             
                             const unsubscribe = onSnapshot(colRef, (snapshot) => {
@@ -126,7 +229,7 @@
                     });
                 } catch (err) {
                     console.error("Error de Auth:", err);
-                    setErrorMsg("Error de Autenticación: Asegúrate de activar 'Anonymous Login' en la consola de Firebase (Authentication > Sign-in Method).");
+                    setErrorMsg("Error de Autenticación: Asegúrate de activar 'Anonymous Login' en la consola de Firebase.");
                     setLoading(false);
                 }
             };
@@ -206,8 +309,7 @@
                         <div className="flex gap-4">
                             <select className="bg-white border-2 border-slate-200 p-3 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm cursor-pointer" onChange={e => setFilter(e.target.value)}>
                                 <option value="All">Todas las Áreas</option>
-                                <option value="Planta 1">Planta 1</option>
-                                <option value="Planta 2">Planta 2</option>
+                                {categoryList.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                             </select>
                             <button onClick={() => setIsAdding(true)} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">+ Nueva Actividad</button>
                         </div>
@@ -284,6 +386,12 @@
                             <div className="bg-white rounded-[3rem] p-10 max-w-xl w-full shadow-2xl animate-in zoom-in duration-200">
                                 <h2 className="text-3xl font-black text-slate-900 uppercase italic mb-8 tracking-tighter text-center">Nueva Operación</h2>
                                 <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Área</label>
+                                        <select className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm outline-none focus:border-indigo-500 transition-all" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                                            {categoryList.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                        </select>
+                                    </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Título</label>
                                         <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-sm outline-none focus:border-indigo-500 transition-all" placeholder="Ej: Trayectorias Cobot" onChange={e => setForm({...form, main: e.target.value})} />
